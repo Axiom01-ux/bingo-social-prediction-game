@@ -1,0 +1,339 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (uid)
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - name: string (required, size 1-100)
+    //   - handle: string (required, size 1-50)
+    //   - avatar: string (optional, URL)
+    //   - balance: number (required, >= 0)
+    //   - joinedDate: string (optional)
+    //   - role: string (optional, enum: ['user', 'admin'])
+    //   - wins: number (optional)
+    //   - volume: number (optional)
+    //   - followers: number (optional)
+    //   - following: number (optional)
+    //
+    // Collection: predictions
+    // Document ID: auto-generated
+    // Fields:
+    //   - creatorUid: string (required, immutable)
+    //   - question: string (required, size 1-500)
+    //   - description: string (required, size 0-5000)
+    //   - category: string (required, size 1-50)
+    //   - endTime: timestamp (required)
+    //   - prices: map (required, {yes: number, no: number})
+    //   - volume: number (required, >= 0)
+    //   - probability: number (required, 0-100)
+    //   - isResolved: bool (optional)
+    //   - isVoting: bool (optional)
+    //   - votesYes: number (optional)
+    //   - votesNo: number (optional)
+    //   - voters: list (optional)
+    //   - result: string (optional, enum: ['yes', 'no'])
+    //   - resolutionSource: string (optional, enum: ['community_vote'])
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: userPositions
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - predictionId: string (required, immutable)
+    //   - side: string (required, enum: ['yes', 'no'])
+    //   - shares: number (required, > 0)
+    //   - avgPrice: number (required, > 0)
+    //   - timestamp: timestamp (required, immutable)
+    //   - isSettled: bool (optional)
+    //   - rewardAmount: number (optional)
+    //
+    // Collection: predictionVotes
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - predictionId: string (required, immutable)
+    //   - vote: string (required, enum: ['yes', 'no'])
+    //   - timestamp: timestamp (required, immutable)
+    //
+    // Collection: bookmarks
+    // Document ID: userId_predictionId
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - predictionId: string (required, immutable)
+    //   - timestamp: timestamp (required, immutable)
+    //
+    // Collection: likes
+    // Document ID: userId_predictionId
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - predictionId: string (required, immutable)
+    //   - timestamp: timestamp (required, immutable)
+    //
+    // Collection: reposts
+    // Document ID: userId_predictionId
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - predictionId: string (required, immutable)
+    //   - timestamp: timestamp (required, immutable)
+    //
+    // ===============================================================
+
+    // Collection: comments
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - user: string (required, size 1-100)
+    //   - avatar: string (required, URL)
+    //   - text: string (required, size 1-1000)
+    //   - time: timestamp (required, immutable)
+    //   - likes: number (required, >= 0)
+    //   - positionSide: string (optional, enum: ['yes', 'no'])
+    //   - positionAmount: number (optional, >= 0)
+    //   - predictionId: string (required, immutable)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((request.auth.token.email == "lzhao5812@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // Test connection path
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // Reports collection
+    match /reports/{reportId} {
+      function isValidReport(data) {
+        return hasOnlyAllowedFields(['targetId', 'targetType', 'reporterUid', 'reason', 'status', 'timestamp']) &&
+          data.reporterUid == request.auth.uid &&
+          data.targetId is string &&
+          data.targetType in ['prediction', 'comment'] &&
+          data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 1000 &&
+          data.status == 'pending' &&
+          data.timestamp == request.time;
+      }
+      allow create: if isAuthenticated() && isValidReport(request.resource.data);
+      allow read, update: if isAdmin();
+    }
+
+    // Disputes collection
+    match /disputes/{disputeId} {
+      function isValidDispute(data) {
+        let prediction = get(/databases/$(database)/documents/predictions/$(data.predictionId)).data;
+        let resolvedAt = prediction.resolvedAt;
+        let sixHours = duration.value(6, 'h');
+        return hasOnlyAllowedFields(['predictionId', 'uid', 'category', 'reason', 'evidenceUrl', 'status', 'adminResponse', 'timestamp']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.category in ['result_error', 'not_published', 'misleading', 'other'] &&
+          data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 1000 &&
+          (!('evidenceUrl' in data) || isValidUrl(data.evidenceUrl)) &&
+          data.status == 'pending' &&
+          data.timestamp == request.time &&
+          prediction.isResolved == true &&
+          request.time <= resolvedAt + sixHours;
+      }
+      allow create: if isAuthenticated() && isValidDispute(request.resource.data);
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
+    }
+
+    // FAQs collection
+    match /faqs/{faqId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Predictions collection
+    match /predictions/{predictionId} {
+      function isValidPrediction(data) {
+        return hasOnlyAllowedFields(['creatorUid', 'creator', 'authorComment', 'question', 'description', 'category', 'endTime', 'prices', 'volume', 'probability', 'isResolved', 'result', 'resolvedAt', 'createdAt', 'totalYes', 'totalNo', 'isVoting', 'votesYes', 'votesNo', 'voters', 'resolutionSource', 'likesCount', 'repostsCount', 'commentsCount', 'viewsCount']) &&
+          data.creatorUid is string &&
+          data.creator is map &&
+          data.creator.uid is string &&
+          data.creator.name is string && data.creator.name.size() <= 100 &&
+          data.creator.handle is string && data.creator.handle.size() <= 50 &&
+          data.creator.avatar is string && isValidUrl(data.creator.avatar) &&
+          (!('authorComment' in data) || (data.authorComment is string && data.authorComment.size() <= 5000)) &&
+          data.question is string && data.question.size() >= 1 && data.question.size() <= 500 &&
+          data.description is string && data.description.size() <= 5000 &&
+          data.category is string && data.category.size() >= 1 && data.category.size() <= 50 &&
+          data.endTime is timestamp &&
+          data.prices is map && data.prices.yes is number && data.prices.no is number &&
+          data.volume is number && data.volume >= 0 &&
+          data.probability is number && data.probability >= 0 && data.probability <= 100 &&
+          data.createdAt is timestamp &&
+          (!('isResolved' in data) || data.isResolved is bool) &&
+          (!('isVoting' in data) || data.isVoting is bool) &&
+          (!('votesYes' in data) || data.votesYes is number) &&
+          (!('votesNo' in data) || data.votesNo is number) &&
+          (!('voters' in data) || data.voters is list) &&
+          (!('result' in data) || data.result in ['yes', 'no']) &&
+          (!('resolutionSource' in data) || data.resolutionSource == 'community_vote') &&
+          (!('resolvedAt' in data) || data.resolvedAt is timestamp) &&
+          (!('totalYes' in data) || (data.totalYes is number && data.totalYes >= 0)) &&
+          (!('totalNo' in data) || (data.totalNo is number && data.totalNo >= 0));
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidPrediction(request.resource.data) && 
+        (request.resource.data.creatorUid == request.auth.uid || isAdmin());
+      allow update: if (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewsCount'])) || (isAuthenticated() && (
+        isAdmin() || 
+        (resource.data.creatorUid == request.auth.uid && !resource.data.isResolved && isValidPrediction(request.resource.data)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repostsCount', 'commentsCount']))
+      ));
+    }
+
+    // UserPositions collection
+    match /userPositions/{positionId} {
+      function isValidPosition(data) {
+        return hasOnlyAllowedFields(['uid', 'predictionId', 'side', 'shares', 'avgPrice', 'timestamp', 'referrerUid', 'isSettled', 'rewardAmount']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.side in ['yes', 'no'] &&
+          data.shares is number && data.shares > 0 &&
+          data.avgPrice is number && data.avgPrice > 0 &&
+          data.timestamp is timestamp;
+      }
+
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && isValidPosition(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // PredictionVotes collection
+    match /predictionVotes/{voteId} {
+      function isValidVote(data) {
+        return hasOnlyAllowedFields(['uid', 'predictionId', 'vote', 'timestamp']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.vote in ['yes', 'no'] &&
+          data.timestamp == request.time;
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidVote(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Bookmarks collection
+    match /bookmarks/{bookmarkId} {
+      function isValidBookmark(data) {
+        return hasOnlyAllowedFields(['uid', 'predictionId', 'timestamp']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.timestamp is timestamp;
+      }
+
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && isValidBookmark(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    // Likes collection
+    match /likes/{likeId} {
+      function isValidLike(data) {
+        return hasOnlyAllowedFields(['uid', 'predictionId', 'timestamp']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.timestamp is timestamp;
+      }
+
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && isValidLike(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    // Reposts collection
+    match /reposts/{repostId} {
+      function isValidRepost(data) {
+        return hasOnlyAllowedFields(['uid', 'predictionId', 'timestamp']) &&
+          data.uid == request.auth.uid &&
+          data.predictionId is string &&
+          data.timestamp is timestamp;
+      }
+
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && isValidRepost(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    // Comments collection
+    match /comments/{commentId} {
+      function isValidComment(data) {
+        return hasOnlyAllowedFields(['id', 'user', 'uid', 'avatar', 'text', 'time', 'likes', 'positionSide', 'positionAmount', 'predictionId']) &&
+          data.uid == request.auth.uid &&
+          data.user is string && data.user.size() >= 1 && data.user.size() <= 100 &&
+          data.avatar is string && isValidUrl(data.avatar) &&
+          data.text is string && data.text.size() >= 1 && data.text.size() <= 1000 &&
+          data.time is timestamp &&
+          data.likes is number && data.likes >= 0 &&
+          data.predictionId is string;
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidComment(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (isDocOwner() && request.resource.data.likes == resource.data.likes + 1) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

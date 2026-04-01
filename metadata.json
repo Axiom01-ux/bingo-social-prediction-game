@@ -1,0 +1,8 @@
+{
+  "name": "Bingo Social Prediction",
+  "description": "A social prediction app for friends and communities. Use virtual points to predict outcomes and resolve them through community voting. For entertainment purposes only.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

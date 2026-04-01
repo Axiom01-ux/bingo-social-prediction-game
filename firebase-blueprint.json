@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "handle": { "type": "string" },
+        "avatar": { "type": "string" },
+        "balance": { "type": "number", "description": "Virtual points balance" },
+        "joinedDate": { "type": "string", "format": "date-time" },
+        "wins": { "type": "number" },
+        "volume": { "type": "number" },
+        "followers": { "type": "number" },
+        "following": { "type": "number" },
+        "role": { "type": "string" }
+      },
+      "required": ["uid", "name", "handle", "balance"]
+    },
+    "Prediction": {
+      "title": "Prediction",
+      "description": "A social prediction item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "creatorUid": { "type": "string" },
+        "creator": {
+          "type": "object",
+          "properties": {
+            "uid": { "type": "string" },
+            "name": { "type": "string" },
+            "handle": { "type": "string" },
+            "avatar": { "type": "string" }
+          },
+          "required": ["uid", "name", "handle", "avatar"]
+        },
+        "authorComment": { "type": "string" },
+        "question": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "prices": {
+          "type": "object",
+          "properties": {
+            "yes": { "type": "number" },
+            "no": { "type": "number" }
+          }
+        },
+        "totalYes": { "type": "number" },
+        "totalNo": { "type": "number" },
+        "volume": { "type": "number" },
+        "probability": { "type": "number" },
+        "isResolved": { "type": "boolean" },
+        "isVoting": { "type": "boolean" },
+        "votesYes": { "type": "number" },
+        "votesNo": { "type": "number" },
+        "voters": { "type": "array", "items": { "type": "string" } },
+        "result": { "type": "string", "enum": ["yes", "no"] },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["creatorUid", "creator", "question", "endTime", "prices", "volume", "probability", "totalYes", "totalNo"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "A report of a violating prediction or comment",
+      "type": "object",
+      "properties": {
+        "targetId": { "type": "string" },
+        "targetType": { "type": "string", "enum": ["prediction", "comment"] },
+        "reporterUid": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "resolved"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["targetId", "targetType", "reporterUid", "reason", "status", "timestamp"]
+    },
+    "Dispute": {
+      "title": "Dispute",
+      "description": "A dispute against a prediction result",
+      "type": "object",
+      "properties": {
+        "predictionId": { "type": "string" },
+        "uid": { "type": "string" },
+        "category": { "type": "string", "enum": ["result_error", "not_published", "misleading", "other"] },
+        "reason": { "type": "string" },
+        "evidenceUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "resolved", "rejected"] },
+        "adminResponse": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["predictionId", "uid", "category", "reason", "status", "timestamp"]
+    },
+    "FAQ": {
+      "title": "FAQ",
+      "description": "Standardized help and communication content",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "category": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["question", "answer", "category"]
+    },
+    "UserPosition": {
+      "title": "UserPosition",
+      "description": "A user's participation in a prediction",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "predictionId": { "type": "string" },
+        "side": { "type": "string", "enum": ["yes", "no"] },
+        "shares": { "type": "number" },
+        "avgPrice": { "type": "number" },
+        "referrerUid": { "type": "string" },
+        "isSettled": { "type": "boolean" },
+        "rewardAmount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "predictionId", "side", "shares", "avgPrice", "timestamp"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "A user's bookmarked prediction",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "predictionId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "predictionId"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a prediction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user": { "type": "string" },
+        "uid": { "type": "string" },
+        "avatar": { "type": "string" },
+        "text": { "type": "string" },
+        "time": { "type": "string", "format": "date-time" },
+        "likes": { "type": "number" },
+        "positionSide": { "type": "string", "enum": ["yes", "no"] },
+        "positionAmount": { "type": "number" },
+        "predictionId": { "type": "string" }
+      },
+      "required": ["user", "uid", "avatar", "text", "time", "likes", "predictionId"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of user profiles"
+    },
+    "predictions": {
+      "schema": "Prediction",
+      "description": "Collection of all prediction markets"
+    },
+    "userPositions": {
+      "schema": "UserPosition",
+      "description": "Collection of all user participations"
+    },
+    "bookmarks": {
+      "schema": "Bookmark",
+      "description": "Collection of user bookmarks"
+    },
+    "comments": {
+      "schema": "Comment",
+      "description": "Collection of comments on predictions"
+    },
+    "reports": {
+      "schema": "Report",
+      "description": "Collection of user reports"
+    },
+    "disputes": {
+      "schema": "Dispute",
+      "description": "Collection of prediction disputes"
+    },
+    "faqs": {
+      "schema": "FAQ",
+      "description": "Collection of help center content"
+    }
+  }
+}
